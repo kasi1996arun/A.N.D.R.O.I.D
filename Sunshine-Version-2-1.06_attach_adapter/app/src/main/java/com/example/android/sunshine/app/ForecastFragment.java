@@ -1,8 +1,11 @@
 package com.example.android.sunshine.app;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.v4.app.Fragment;
 import android.text.format.Time;
 import android.util.Log;
@@ -12,6 +15,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 
@@ -27,8 +31,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * Created by venka on 12/6/2015.
@@ -56,8 +58,7 @@ public class ForecastFragment extends Fragment {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if(item.getItemId()== R.id.refresh_bth){
-            weatherTask wt =new weatherTask();
-            wt.execute("Madurai");
+            updater();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -68,17 +69,6 @@ public class ForecastFragment extends Fragment {
                              Bundle savedInstanceState) {
 
         // Create some dummy data for the ListView.  Here's a sample weekly forecast
-        String[] data = {
-                "Mon 6/23 - Sunny - 31/17",
-                "Tue 6/24 - Foggy - 21/8",
-                "Wed 6/25 - Cloudy - 22/17",
-                "Thurs 6/26 - Rainy - 18/11",
-                "Fri 6/27 - Foggy - 21/10",
-                "Sat 6/28 - TRAPPED IN WEATHERSTATION - 23/18",
-                "Sun 6/29 - Sunny - 20/7"
-        };
-        List<String> weekForecast = new ArrayList<String>(Arrays.asList(data));
-
 
         // Now that we have some dummy forecast data, create an ArrayAdapter.
         // The ArrayAdapter will take data from a source (like our dummy forecast) and
@@ -88,18 +78,44 @@ public class ForecastFragment extends Fragment {
                         getActivity(), // The current context (this activity)
                         R.layout.list_item_forecast, // The name of the layout ID.
                         R.id.list_item_forecast_textview, // The ID of the textview to populate.
-                        weekForecast);
+                        new ArrayList<String>());
 
         View rootView = inflater.inflate(R.layout.fragment_main, container, false);
 
         // Get a reference to the ListView, and attach this adapter to it.
         ListView listView = (ListView) rootView.findViewById(R.id.listview_forecast);
         listView.setAdapter(mForecastAdapter);
-
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+                String forcast = mForecastAdapter.getItem(i);
+                Intent downloadIntent = new Intent(getActivity(), DetailActivity.class)
+                        .putExtra(Intent.EXTRA_TEXT, forcast);
+                startActivity(downloadIntent);
+            }
+        });
         return rootView;
     }
 
-    public  class weatherTask extends AsyncTask<String,Void,String[]> {
+    void updater(){
+        weatherTask wt = new weatherTask() {
+            @Override
+            protected String[] doInBackground(String... params) {
+                return new String[0];
+            }
+        };
+        //String mystring = getResources().getString(R.string.pref_location_default);
+        SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(getActivity());
+        String mystring = pref.getString(getString(R.string.pref_location_key),getString(R.string.pref_location_default));
+        wt.execute(mystring);
+    }
+
+    @Override
+    public void onStart(){
+        super.onStart();
+        updater();
+    }
+    public abstract class weatherTask extends AsyncTask<String,Void,String[]> {
 
         private final   String LOG_TAG = weatherTask.class.getSimpleName();
 
@@ -113,14 +129,14 @@ public class ForecastFragment extends Fragment {
         /**
          * Prepare the weather high/lows for presentation.
          */
-        private String formatHighLows(double high, double low) {
-            // For presentation, assume the user doesn't care about tenths of a degree.
-            long roundedHigh = Math.round(high);
-            long roundedLow = Math.round(low);
+        private String formatHighLows(double high, double low, String unitType) throws JSONException {
 
-            String highLowStr = roundedHigh + "/" + roundedLow;
-            return highLowStr;
-        }
+            if (unitType.equals(getString(R.string.pref_units_imperial))) {
+                                high = (high * 1.8) + 32;
+                                low = (low * 1.8) + 32;
+                            } else if (!unitType.equals(getString(R.string.pref_units_metric))) {
+                                Log.d(LOG_TAG, "Unit type not found: " + unitType);
+                            }
 
         /**
          * Take the String representing the complete forecast in JSON Format and
@@ -129,7 +145,7 @@ public class ForecastFragment extends Fragment {
          * Fortunately parsing is easy:  constructor takes the JSON string and converts it
          * into an Object hierarchy for us.
          */
-        private String[] getWeatherDataFromJson(String forecastJsonStr, int numDays)
+        private String[] getWeatherDataFromJson(String forecast, int numDays)
                 throws JSONException {
 
             // These are the names of the JSON objects that need to be extracted.
@@ -140,7 +156,7 @@ public class ForecastFragment extends Fragment {
             final String OWM_MIN = "min";
             final String OWM_DESCRIPTION = "main";
 
-            JSONObject forecastJson = new JSONObject(forecastJsonStr);
+            JSONObject forecastJson = new JSONObject(forecast);
             JSONArray weatherArray = forecastJson.getJSONArray(OWM_LIST);
 
             // OWM returns daily forecasts based upon the local time of the city that is being
@@ -205,7 +221,7 @@ public class ForecastFragment extends Fragment {
             HttpURLConnection urlConnection = null;
             BufferedReader reader = null;
 
-            // Will contain the raw JSON response as a string.
+            // Will contain the raw JSON response as a string
             String forecastJsonStr = null;
             String format="json";
             String units="metric";
